@@ -1,0 +1,45 @@
+name: rotate random.gif
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes; change to */1 for every minute
+  workflow_dispatch:          # lets you run manually
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: pick random gif and update random.gif
+        shell: bash
+        run: |
+          set -euo pipefail
+          GIF_DIR="."     # change to your subfolder if gifs aren’t in root
+          mapfile -t FILES < <(find "$GIF_DIR" -maxdepth 1 -type f -iname '*.gif' ! -name 'random.gif' | sort)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "No candidate GIFs found"; exit 1
+          fi
+          idx=$(( RANDOM % ${#FILES[@]} ))
+          pick="${FILES[$idx]}"
+          echo "Picked: $pick"
+          if ! cmp -s "$pick" random.gif; then
+            cp -f "$pick" random.gif
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add random.gif
+            git commit -m "rotate random.gif -> $(basename "$pick")"
+            git push
+          else
+            echo "random.gif already equals picked file; skipping commit"
+          fi
+
+      - name: bump timestamp to help cdn refresh (optional)
+        shell: bash
+        run: |
+          date +%s > .last-rotation
+          git add .last-rotation || true
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "meta: rotation heartbeat" || true
+          git push || true
