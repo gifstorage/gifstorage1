@@ -2,7 +2,7 @@ name: rotate random.gif
 
 on:
   schedule:
-    - cron: "*/10 * * * *"    # auto every 10 minutes; change as you wish
+    - cron: "*/10 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -23,19 +23,18 @@ jobs:
         run: |
           set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          GIF_DIR="."   # change if your gifs live in a subfolder
           shopt -s nullglob nocaseglob
-          files=( "$GIF_DIR"/*.gif )
+          files=( ./*.gif )
           # remove random.gif from candidates
-          for i in "${!files[@]}"; do
-            [[ "$(basename "${files[$i]}")" == "random.gif" ]] && unset 'files[i]'
+          tmp=()
+          for f in "${files[@]}"; do
+            [[ "$(basename "$f")" == "random.gif" ]] || tmp+=( "$f" )
           done
-          files=( "${files[@]}" )
+          files=( "${tmp[@]}" )
           if [[ ${#files[@]} -eq 0 ]]; then
             echo "no candidate gifs"; exit 1
           fi
-          idx=$(( RANDOM % ${#files[@]} ))
-          pick="${files[$idx]}"
+          pick="${files[$(( RANDOM % ${#files[@]} ))]}"
           echo "picked: $pick"
           [[ -f random.gif ]] || cp -f "$pick" random.gif
           if ! cmp -s "$pick" random.gif; then
@@ -49,18 +48,47 @@ jobs:
             echo "random.gif unchanged; skipping commit"
           fi
 
-      - name: purge jsDelivr cache for random.gif
+      - name: bump CSS cache-buster
+        shell: bash
         run: |
           set -e
-          URL="https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif"
-          echo "Purging $URL"
-          curl -sS "$URL" | tee purge-response.json
-          echo "Purge requested."
+          stamp=$(date +%s)
+          css_file="theme.css"
+          if [[ -f "$css_file" ]]; then
+            # replace any existing ?v=... with the new stamp
+            sed -i.bak -E 's|(random\.gif\?v=)[0-9A-Za-z_-]+|\1'"$stamp"'|g' "$css_file" || true
+            rm -f "$css_file.bak"
+          else
+            cat > "$css_file" <<EOF
+.content_a2f514::before{
+  content:"";
+  display:block;
+  width:256px;
+  height:256px;
+  margin:0 auto 160px;
+  background-image:url("https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif?v=$stamp");
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:contain;
+  image-rendering:pixelated;
+}
+EOF
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add theme.css
+          git commit -m "bump theme.css cache-buster -> v=$stamp" || echo "no css change"
+          git push || true
 
-      - name: warm CDN edge (optional)
+      - name: purge jsDelivr (gif + css) and warm
+        shell: bash
         run: |
           set -e
-          URL="https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif"
-          curl -sI "$URL" >/dev/null || true
-          sleep 1
-          curl -sI "$URL" >/dev/null || true
+          PURGE1="https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif"
+          PURGE2="https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/theme.css"
+          echo "Purging..."
+          curl -sS "$PURGE1" >/dev/null
+          curl -sS "$PURGE2" >/dev/null
+          echo "Warming..."
+          curl -sI "https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/theme.css" >/dev/null || true
+          curl -sI "https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif" >/dev/null || true
