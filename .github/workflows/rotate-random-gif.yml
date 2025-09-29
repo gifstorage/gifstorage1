@@ -2,8 +2,11 @@ name: rotate random.gif
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes; change to */1 for every minute
-  workflow_dispatch:          # lets you run manually
+    - cron: "*/10 * * * *"    # auto every 10 minutes; change as you wish
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   rotate:
@@ -11,19 +14,30 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: pick random gif and update random.gif
         shell: bash
         run: |
           set -euo pipefail
-          GIF_DIR="."     # change to your subfolder if gifs aren’t in root
-          mapfile -t FILES < <(find "$GIF_DIR" -maxdepth 1 -type f -iname '*.gif' ! -name 'random.gif' | sort)
-          if [[ ${#FILES[@]} -eq 0 ]]; then
-            echo "No candidate GIFs found"; exit 1
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          GIF_DIR="."   # change if your gifs live in a subfolder
+          shopt -s nullglob nocaseglob
+          files=( "$GIF_DIR"/*.gif )
+          # remove random.gif from candidates
+          for i in "${!files[@]}"; do
+            [[ "$(basename "${files[$i]}")" == "random.gif" ]] && unset 'files[i]'
+          done
+          files=( "${files[@]}" )
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "no candidate gifs"; exit 1
           fi
-          idx=$(( RANDOM % ${#FILES[@]} ))
-          pick="${FILES[$idx]}"
-          echo "Picked: $pick"
+          idx=$(( RANDOM % ${#files[@]} ))
+          pick="${files[$idx]}"
+          echo "picked: $pick"
+          [[ -f random.gif ]] || cp -f "$pick" random.gif
           if ! cmp -s "$pick" random.gif; then
             cp -f "$pick" random.gif
             git config user.name "github-actions[bot]"
@@ -32,14 +46,21 @@ jobs:
             git commit -m "rotate random.gif -> $(basename "$pick")"
             git push
           else
-            echo "random.gif already equals picked file; skipping commit"
+            echo "random.gif unchanged; skipping commit"
           fi
 
-      - name: bump timestamp to help cdn refresh (optional)
-        shell: bash
+      - name: purge jsDelivr cache for random.gif
         run: |
-          date +%s > .last-rotation
-          git add .last-rotation || true
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -m "meta: rotation heartbeat" || true
-          git push || true
+          set -e
+          URL="https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif"
+          echo "Purging $URL"
+          curl -sS "$URL" | tee purge-response.json
+          echo "Purge requested."
+
+      - name: warm CDN edge (optional)
+        run: |
+          set -e
+          URL="https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif"
+          curl -sI "$URL" >/dev/null || true
+          sleep 1
+          curl -sI "$URL" >/dev/null || true
