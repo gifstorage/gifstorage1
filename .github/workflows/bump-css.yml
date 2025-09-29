@@ -1,9 +1,9 @@
 name: bump CSS only
 
 on:
-  workflow_dispatch: {}        # lets you run manually
+  workflow_dispatch: {}          #manual button
   schedule:
-    - cron: "*/10 * * * *"     # auto every 10 min
+    - cron: "*/10 * * * *"       #every 10 min
 
 permissions:
   contents: write
@@ -24,23 +24,24 @@ jobs:
         run: |
           set -euo pipefail
           STAMP=$(date +%s)
-          cat > theme.css <<EOF
-/* theme.css — generated */
-.content_a2f514::before{
-  content:"";
-  display:block;
-  width:256px;
-  height:256px;
-  margin:0 auto 160px;
-  background-image:url("https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif?v=$STAMP");
-  background-repeat:no-repeat;
-  background-position:center;
-  background-size:contain;
-  image-rendering:pixelated;
-}
-EOF
+          {
+            printf '/* theme.css — generated */\n'
+            printf '.content_a2f514::before{\n'
+            printf '  content:"";\n'
+            printf '  display:block;\n'
+            printf '  width:256px;\n'
+            printf '  height:256px;\n'
+            printf '  margin:0 auto 160px;\n'
+            printf '  background-image:url("https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif?v=%s");\n' "$STAMP"
+            printf '  background-repeat:no-repeat;\n'
+            printf '  background-position:center;\n'
+            printf '  background-size:contain;\n'
+            printf '  image-rendering:pixelated;\n'
+            printf '}\n'
+          } > theme.css
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add theme.css
-          git commit -m "bump theme.css v=$STAMP" || echo "no change"
-          git push origin HEAD:main || true
+          git commit -m "bump theme.css v=$STAMP" || exit 0
+          git push origin HEAD:main
