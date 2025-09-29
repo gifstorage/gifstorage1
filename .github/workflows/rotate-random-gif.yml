@@ -2,8 +2,8 @@ name: rotate random.gif
 
 on:
   schedule:
-    - cron: "*/10 * * * *"     # auto
-  workflow_dispatch: {}         # manual Run workflow button
+    - cron: "*/10 * * * *"        # auto every 10 minutes
+  workflow_dispatch: {}            # manual "Run workflow" button
 
 permissions:
   contents: write
@@ -18,39 +18,33 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
-      - name: pick random gif and update random.gif
+      - name: pick gif, update random.gif and write theme.css
         shell: bash
         run: |
           set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           shopt -s nullglob nocaseglob
+
+          # gather candidates (exclude random.gif)
           files=( ./*.gif )
-          # exclude random.gif
           candidates=()
           for f in "${files[@]}"; do
             [[ "$(basename "$f")" == "random.gif" ]] || candidates+=( "$f" )
           done
           if [[ ${#candidates[@]} -eq 0 ]]; then
-            echo "no candidate gifs"; exit 1
+            echo "no candidate gifs found"; exit 1
           fi
+
           pick="${candidates[$(( RANDOM % ${#candidates[@]} ))]}"
           echo "picked: $(basename "$pick")"
+
+          # update random.gif
           [[ -f random.gif ]] || cp -f "$pick" random.gif
           if ! cmp -s "$pick" random.gif; then
             cp -f "$pick" random.gif
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add random.gif
-            git commit -m "rotate random.gif -> $(basename "$pick")"
-            git push
-          else
-            echo "random.gif unchanged; skipping commit"
           fi
 
-      - name: write theme.css with new cache-buster
-        shell: bash
-        run: |
-          set -e
+          # always rewrite theme.css with a fresh cache-buster
           STAMP=$(date +%s)
           cat > theme.css <<EOF
 /* theme.css — generated */
@@ -67,17 +61,24 @@ jobs:
   image-rendering:pixelated;
 }
 EOF
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add theme.css
-          git commit -m "bump theme.css cache-buster -> v=$STAMP"
-          git push
+
+          # commit both changes together (if any)
+          git add random.gif theme.css || true
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git pull --rebase
+            git commit -m "rotate random.gif -> $(basename "$pick"); theme.css v=$STAMP"
+            git push
+          else
+            echo "nothing to commit"
+          fi
 
       - name: purge jsDelivr (gif + css) and warm
         shell: bash
         run: |
           set -e
-          curl -sS "https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif" >/dev/null
-          curl -sS "https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/theme.css"  >/dev/null
-          # warm (helps some clients fetch fresh)
-          curl -sI "https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/theme.css" >/dev/null || true
+          curl -sS "https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif" || true
+          curl -sS "https://purge.jsdelivr.net/gh/gifstorage/gifstorage1@main/theme.css"  || true
+          curl -sI "https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/theme.css"    || true
+          curl -sI "https://cdn.jsdelivr.net/gh/gifstorage/gifstorage1@main/random.gif"   || true
