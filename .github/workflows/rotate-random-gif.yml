@@ -12,11 +12,12 @@ jobs:
   rotate:
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
+      - name: checkout main
         uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          ref: main
           fetch-depth: 0
+          persist-credentials: true
 
       - name: pick gif, update random.gif and write theme.css
         shell: bash
@@ -25,7 +26,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           shopt -s nullglob nocaseglob
 
-          # gather candidate gifs (exclude random.gif)
+          # gather candidates (exclude random.gif)
           candidates=()
           for f in ./*.gif; do
             [[ "$(basename "$f")" == "random.gif" ]] && continue
@@ -44,7 +45,7 @@ jobs:
             cp -f "$pick" random.gif
           fi
 
-          # always rewrite theme.css with a fresh cache-buster
+          # always rewrite theme.css with fresh cache-buster
           STAMP=$(date +%s)
           cat > theme.css <<EOF
 /* theme.css — generated */
@@ -62,19 +63,18 @@ jobs:
 }
 EOF
 
-          # commit once (both files)
+          # commit once (both files) and push to main explicitly
           git add random.gif theme.css || true
           if ! git diff --cached --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git pull --rebase
             git commit -m "rotate $(basename "$pick"); theme.css v=$STAMP"
-            git push
+            git push origin HEAD:main
           else
             echo "nothing to commit"
           fi
 
-      - name: purge jsDelivr (gif + css) and warm
+      - name: purge jsdelivr (gif + css) and warm
         shell: bash
         run: |
           set +e
