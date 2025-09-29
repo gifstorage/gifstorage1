@@ -1,4 +1,4 @@
-name: bump CSS only
+name: rotate random.gif
 
 on:
   workflow_dispatch: {}
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  bump:
+  rotate:
     runs-on: ubuntu-latest
     steps:
       - name: checkout main
@@ -19,10 +19,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: rewrite theme.css with fresh ?v=
+      - name: pick gif, update random.gif and rewrite theme.css
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob nocaseglob
+
+          #collect candidates excluding random.gif
+          candidates=()
+          for f in ./*.gif; do
+            [[ "$(basename "$f")" == "random.gif" ]] && continue
+            candidates+=( "$f" )
+          done
+          [[ ${#candidates[@]} -gt 0 ]] || { echo "no candidate gifs"; exit 1; }
+
+          pick="${candidates[$(( RANDOM % ${#candidates[@]} ))]}"
+          echo "picked: $(basename "$pick")"
+
+          [[ -f random.gif ]] || cp -f "$pick" random.gif
+          if ! cmp -s "$pick" random.gif; then
+            cp -f "$pick" random.gif
+          fi
+
           STAMP="${GITHUB_RUN_ID:-$(date +%s)}"
           {
             printf '/* theme.css — generated */\n'
@@ -42,6 +60,6 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add theme.css
-          git commit -m "bump theme.css v=$STAMP" || true
+          git add random.gif theme.css
+          git commit -m "rotate $(basename "$pick"); theme.css v=$STAMP" || true
           git push origin HEAD:main || true
